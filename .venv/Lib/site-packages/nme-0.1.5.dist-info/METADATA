@@ -1,0 +1,212 @@
+Metadata-Version: 2.1
+Name: nme
+Version: 0.1.5
+Summary: Package for simplify data structures migrations
+Home-page: https://github.com/Czaki/nme
+Author: Grzegorz Bokota
+Author-email: g.bokota@uw.edu.pl
+License: MIT
+Project-URL: Homepage, https://github.com/Czaki/nme
+Project-URL: Documentation, https://nme.readthedocs.io/en/latest/
+Project-URL: Repository, https://github.com/Czaki/nme
+Keywords: napari,migration,persistance
+Platform: UNKNOWN
+Classifier: Development Status :: 3 - Alpha
+Classifier: Programming Language :: Python
+Classifier: Operating System :: OS Independent
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Requires-Python: >=3.7
+Description-Content-Type: text/x-rst
+License-File: LICENSE.txt
+Requires-Dist: packaging
+Provides-Extra: cbor
+Requires-Dist: cbor2 ; extra == 'cbor'
+Provides-Extra: test
+Requires-Dist: pytest (>7.0.0) ; extra == 'test'
+Requires-Dist: pydantic ; extra == 'test'
+Requires-Dist: numpy ; extra == 'test'
+Requires-Dist: napari ; extra == 'test'
+
+***********************
+Napari Migration Engine
+***********************
+
+.. image:: https://codecov.io/gh/Czaki/nme/branch/main/graph/badge.svg?token=KGEGEQYYRH
+  :target: https://codecov.io/gh/Czaki/nme
+  :alt: Codecov
+
+.. image:: https://github.com/Czaki/nme/actions/workflows/tests.yml/badge.svg
+  :target: https://github.com/Czaki/nme/actions/workflows/tests.yml
+  :alt: Test
+
+.. image:: https://img.shields.io/badge/code%20style-black-000000.svg
+  :target: https://github.com/psf/black
+  :alt: Code Style
+
+.. image:: https://readthedocs.org/projects/nme/badge/?version=latest
+  :target: https://nme.readthedocs.io/en/latest/?badge=latest
+  :alt: Documentation Status
+
+.. image:: https://badge.fury.io/py/nme.svg
+  :target: https://badge.fury.io/py/nme
+  :alt: PyPI version
+
+.. image:: https://anaconda.org/conda-forge/nme/badges/version.svg
+  :target: https://anaconda.org/conda-forge/nme
+  :alt: Anaconda version
+
+
+This support package simplifies data persistence between user sessions
+and software version updates.
+
+The main idea of this package is simplify data migration between versions,
+and allow to define migration information next to data structure definition.
+
+
+Basic usage (data serialization)
+################################
+
+If You only need to serialize data, then you could use only JSON hooks
+
+.. code-block:: python
+
+    import json
+
+    from pydantic import BaseModel
+    from nme import NMEEncoder, nme_object_hook
+
+
+    class SampleModel(BaseModel):
+        field1: int
+        field2: str
+
+
+    data = SampleModel(field1=4, field2="abc")
+
+    with open("sample.json", "w") as f_p:
+        json.dump(data, f_p, cls=NMEEncoder)
+
+    with open("sample.json") as f_p:
+        data2 = json.load(f_p, object_hook=nme_object_hook)
+
+    assert data == data2
+
+
+Migrations
+##########
+
+To register this information there is ``register_class`` decorator.
+It has 4 parameters:
+
+* ``version`` - version of data structure
+* ``migration_list`` - list of tuple (``version``. ``migration_function``).
+* ``old_paths`` - list of fully qualified python paths to previous class
+  definitions. This is to allow move class during code refactoring.
+* ``use_parent_migrations`` - if True, then parent class migrations
+  will be used.
+
+
+Lets imagine that we have such code
+
+.. code-block:: python
+
+    from nme import NMEEncoder, nme_object_hook
+
+    class SampleModel(BaseModel):
+        field1: int
+        field_ca_1: str
+        field_ca_2: float
+
+    with open("sample.json", "w") as f_p:
+        json.dump(data, f_p, cls=NMEEncoder)
+
+But there is decision to move both ``ca`` field to sub structure:
+
+.. code-block:: python
+
+    class CaModel(BaseModel):
+        field_1: str
+        field_2: float
+
+    class SampleModel(BaseModel):
+        field1: int
+        field_ca: CaModel
+
+
+Then with ``nme`` code may look:
+
+.. code-block:: python
+
+    from nme import nme_object_hook, register_class
+
+    class CaModel(BaseModel):
+        field_1: str
+        field_2: float
+
+    def ca_migration_function(dkt):
+        dkt["field_ca"] = CaModel(field1=dkt.pop("field_ca_1"),
+                                  field2=dkt.pop("field_ca_2"))
+        return dkt
+
+    @register_class("0.0.1", [("0.0.1", ca_migration_function)])
+    class SampleModel(BaseModel):
+        field1: int
+        field_ca: CaModel
+
+    with open("sample.json") as f_p:
+        data = json.load(f_p, object_hook=nme_object_hook)
+
+Assume that there is decision to rename ``field1`` to ``id``.
+Then code may look:
+
+.. code-block:: python
+
+    from nme import nme_object_hook, register_class, rename_key
+
+    class CaModel(BaseModel):
+        field_1: str
+        field_2: float
+
+    def ca_migration_function(dkt):
+        dkt["field_ca"] = CaModel(field1=dkt.pop("field_ca_1"),
+                                  field2=dkt.pop("field_ca_2"))
+        return dkt
+
+    @register_class("0.0.2", [("0.0.1", ca_migration_function), ("0.0.2", rename_key("field1", "id"))])
+    class SampleModel(BaseModel):
+        id: int
+        field_ca: CaModel
+
+    with open("sample.json") as f_p:
+        data = json.load(f_p, object_hook=nme_object_hook)
+
+
+More examples could be found in `examples`_ section of documentation
+
+Additional functions
+####################
+
+* ``rename_key(from_key: str, to_key: str, optional=False) -> Callable[[Dict], Dict]`` - helper
+  function for rename field migrations.
+
+* ``update_argument(argument_name:str)(func: Callable) -> Callable`` - decorator to keep backward
+  compatibility by converting ``dict`` argument to some class base on function type annotation
+
+
+Additional notes
+################
+
+This package is extracted from `PartSeg`_
+project for simplify reuse it in another projects.
+
+
+.. _PartSeg: https://github.com/4DNucleome/PartSeg
+.. _examples: https://nme.readthedocs.io/en/latest/examples.html
+
+
