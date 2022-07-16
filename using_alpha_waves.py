@@ -1,12 +1,10 @@
 import mne
-import datashaper
 import warnings
 import pandas as pd
 import numpy as np
 import math  
 from alphawaves.dataset import AlphaWaves
 from scipy.stats import zscore
-from scipy.signal import welch
 warnings.filterwarnings("ignore")
 
 def calc_theta_alpha_bandpower(_data):
@@ -27,9 +25,9 @@ def calc_theta_alpha_bandpower(_data):
             freq_ix = np.where((fft_freq >= eeg_bands[band][0]) & 
                             (fft_freq <= eeg_bands[band][1]))[0]
             if band == 'Theta':
-                eeg_band_fft[0,channel] = np.mean(fft_vals[freq_ix])
+                eeg_band_fft[0,channel] = np.mean(fft_vals[freq_ix])/np.mean(fft_vals)
             else:
-                eeg_band_fft[1,channel] = np.mean(fft_vals[freq_ix])
+                eeg_band_fft[1,channel] = np.mean(fft_vals[freq_ix])/np.mean(fft_vals)
     return eeg_band_fft
 
 # AlphaWaves DATASET AND INITIAL DATA HANDLING CODE ADAPTED FROM THE ALPHA WAVES GITHUB:
@@ -41,9 +39,8 @@ dataset = AlphaWaves(useMontagePosition = False) # use useMontagePosition = Fals
 
 # #initialise and set variables
 #X = np.array([])
-#Xt = np.array([])
+Xt = np.array([])
 Xa = np.array([])
-#Xtdiva = np.array([])
 participant_n = 19
 channel_n = 16
 
@@ -70,10 +67,10 @@ for p in range(participant_n):
     X_w = epochs.get_data()
     #initialise array, shape = (n features, n channels)
     #X_w_entropy = np.zeros((X_w.shape[0], channel_n)) 
-    #X_w_bp_t = np.zeros((X_w.shape[0], channel_n)) 
     X_w_bp_a_1 = np.zeros((X_w.shape[0], channel_n)) 
     X_w_bp_a_2 = np.zeros((X_w.shape[0], channel_n)) 
-    #X_w_bp_t_div_a = np.zeros((X_w.shape[0], channel_n)) 
+    X_w_bp_t_1 = np.zeros((X_w.shape[0], channel_n)) 
+    X_w_bp_t_2 = np.zeros((X_w.shape[0], channel_n)) 
     #loop through each FEATURE of the data
     for x, element in enumerate(X_w):
         chunk = X_w[x]
@@ -92,26 +89,25 @@ for p in range(participant_n):
         #bandpower calcs
         bp1 = calc_theta_alpha_bandpower(chunk_n1)
         bp2 = calc_theta_alpha_bandpower(chunk_n2)
-        #X_w_bp_t[x] = bp[0,:]
         X_w_bp_a_1[x] = bp1[1,:]
         X_w_bp_a_2[x] = bp2[1,:]
-        #X_w_bp_t_div_a[x] = bp[0,:] / bp[1,:]
+        X_w_bp_t_1[x] = bp1[0,:]
+        X_w_bp_t_2[x] = bp2[0,:]
         #calculate fuzzy entropy for each channel
         #X_w_entropy[x] = datashaper.df_norm_to_entropy(chunk_n, channel_n)
-    # Xt = np.vstack([Xt,X_w_bp_t]) if Xt.size else X_w_bp_t
     Xa = np.vstack([Xa,X_w_bp_a_1]) if Xa.size else X_w_bp_a_1
     Xa = np.vstack([Xa,X_w_bp_a_2]) if Xa.size else X_w_bp_a_2
-    # Xtdiva = np.vstack([Xtdiva,X_w_bp_t_div_a]) if Xtdiva.size else X_w_bp_t_div_a
+    Xt = np.vstack([Xt,X_w_bp_t_1]) if Xt.size else X_w_bp_t_1
+    Xt = np.vstack([Xt,X_w_bp_t_2]) if Xt.size else X_w_bp_t_2
 #     #concatenate participants into a big array
 #     X = np.vstack([X,X_w_entropy]) if X.size else X_w_entropy
 #     print('finished calculating entropy values for participant #', (p+1))
 # save the features to be loaded and classified in using_alpha_waves_classify.py
-# dft = pd.DataFrame(Xt)
+dft = pd.DataFrame(Xt)
 dfa = pd.DataFrame(Xa)
 # dftdiva = pd.DataFrame(Xtdiva)
-# dft.to_pickle("bandpower_theta.pkl")
+dft.to_pickle("bandpower_theta.pkl")
 dfa.to_pickle("bandpower_alpha.pkl")
-# dftdiva.to_pickle("bandpower_theta_div_alpha.pkl")
 
 # df = pd.DataFrame(X)
 # df.to_pickle("FuzEn_4-8Hz.pkl")
